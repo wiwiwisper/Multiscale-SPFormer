@@ -1,0 +1,4 @@
+# ninja log v7
+1	6384	1765774354971749357	/home/asus/dyt/projtest/SPFormer/spformer/lib/build/temp.linux-x86_64-cpython-38/pointgroup_ops/src/pointgroup_ops.o	dab938312f1793ec
+1	7633	1765774354971749357	/home/asus/dyt/projtest/SPFormer/spformer/lib/build/temp.linux-x86_64-cpython-38/pointgroup_ops/src/pointgroup_ops_api.o	2e4e3d78c68437db
+0	8854	1765774354970749375	/home/asus/dyt/projtest/SPFormer/spformer/lib/build/temp.linux-x86_64-cpython-38/pointgroup_ops/src/cuda.o	a40195be3f725b71

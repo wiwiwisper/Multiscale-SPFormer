@@ -1,0 +1,118 @@
+train:
+  seed: 1999
+  epochs: 512
+  interval: 8
+  pretrain: null
+
+test:
+  seed: 1999
+  test_topk_per_scene: 200
+  test_score_thresh: 0.0
+  test_npoint_thresh: 12
+
+dataloader:
+  train:
+    batch_size: 2
+    num_workers: 8
+    persistent_workers: True
+  val:
+    batch_size: 1
+    num_workers: 4
+    persistent_workers: True
+  test:
+    batch_size: 1
+    num_workers: 4
+    persistent_workers: True
+
+data:
+  train:
+    type: myplants
+    data_root: data/myplants
+    prefix: train
+    suffix: .pth
+    training: True
+    mode: 4
+    with_elastic: True
+    use_xyz: True
+    voxel_cfg:
+      scale: 50
+      spatial_shape: [128, 512]
+      max_npoint: 250000
+  val:
+    type: myplants
+    data_root: data/myplants
+    prefix: val
+    suffix: .pth
+    training: False
+    mode: 4
+    with_elastic: False
+    use_xyz: True
+    voxel_cfg:
+      scale: 50
+      spatial_shape: [128, 512]
+      max_npoint: 250000
+  test:
+    type: myplants
+    data_root: data/myplants
+    prefix: test
+    suffix: .pth
+    training: False
+    mode: 4
+    with_elastic: False
+    use_xyz: True
+    voxel_cfg:
+      scale: 50
+      spatial_shape: [128, 512]
+      max_npoint: 250000
+
+model:
+  input_channel: 6
+  blocks: 5
+  block_reps: 2
+  media: 32
+  normalize_before: True
+  return_blocks: True
+  pool: mean
+  num_class: 2
+  geo_feat_dim: 0
+  coarse_scales: [0.5, 1.0, 2.0, 4.0]   # fine + 4 coarse = 5-scale
+  fusion_mode: mlp
+  decoder:
+    num_layer: 6
+    num_query: 400
+    d_model: 256
+    nhead: 8
+    hidden_dim: 1024
+    dropout: 0.0
+    activation_fn: gelu
+    iter_pred: True
+    attn_mask: True
+    pe: False
+    use_sp_pos_enc: False
+  criterion:
+    loss_weight: [0.4, 1.0, 1.2, 0.6]
+    cost_weight: [0.4, 1.0, 1.2]
+    non_object_weight: 0.05
+  test_cfg:
+    topk_insts: 200
+    score_thr: 0.0
+    npoint_thr: 8
+  norm_eval: False
+  fix_module: []
+
+optimizer:
+  type: AdamW
+  lr: 0.0001
+  weight_decay: 0.05
+
+lr_scheduler:
+  type: PolyLR
+  max_iters: 79872
+  power: 0.9
+  constant_ending: 0.0
+
+evaluation:
+  type: sem_inst
+  classes: ['stem', 'leaf']
+  thresholds: [0.25, 0.5]
+  min_npoint: 8

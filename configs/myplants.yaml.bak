@@ -1,0 +1,25 @@
+seed: 42
+work_dir: work_dirs/spf_myplants
+
+data:
+  dataset: myplants
+  data_root: data/myplants/npz_scenes
+  train_list: data/myplants/myplants_train.txt
+  val_list:   data/myplants/myplants_val.txt
+  test_list:  data/myplants/myplants_test.txt
+  batch_size: 2
+  num_workers: 4
+
+model:
+  num_classes: 2         # 根据标签定义（stem=1, leaf=2）
+  decoder:
+    num_queries: 128
+
+optim:
+  lr: 1e-4
+  epochs: 2
+  weight_decay: 1e-4
+
+log:
+  interval: 50
+  save_ckpt_interval: 1
