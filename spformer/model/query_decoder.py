@@ -120,6 +120,7 @@ class QueryDecoder(nn.Module):
         iter_pred=False,
         attn_mask=False,
         pe=False,
+        use_sp_pos_enc=False,
     ):
         super().__init__()
         self.num_layer = num_layer
@@ -141,6 +142,13 @@ class QueryDecoder(nn.Module):
         self.x_mask = nn.Sequential(nn.Linear(in_channel, d_model), nn.ReLU(), nn.Linear(d_model, d_model))
         self.iter_pred = iter_pred
         self.attn_mask = attn_mask
+        self.use_sp_pos_enc = use_sp_pos_enc
+        if use_sp_pos_enc:
+            self.sp_pos_enc = nn.Sequential(
+                nn.Linear(3, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, d_model),
+            )
 
     def get_mask(self, query, mask_feats, batch_offsets):
         pred_masks = []
@@ -165,9 +173,11 @@ class QueryDecoder(nn.Module):
         pred_masks, attn_masks = self.get_mask(query, mask_feats, batch_offsets)
         return pred_labels, pred_scores, pred_masks, attn_masks
 
-    def forward_simple(self, x, batch_offsets):
+    def forward_simple(self, x, batch_offsets, sp_xyz=None):
         inst_feats = self.input_proj(x)
         mask_feats = self.x_mask(x)
+        if self.use_sp_pos_enc and sp_xyz is not None:
+            mask_feats = mask_feats + self.sp_pos_enc(sp_xyz)
         B = len(batch_offsets) - 1
         query = self.query.weight.unsqueeze(0).repeat(B, 1, 1)  # (b, n, d_model)
         for i in range(self.num_layer):
@@ -177,7 +187,7 @@ class QueryDecoder(nn.Module):
         pred_labels, pred_scores, pred_masks, _ = self.prediction_head(query, mask_feats, batch_offsets)
         return {'labels': pred_labels, 'masks': pred_masks, 'scores': pred_scores}
 
-    def forward_iter_pred(self, x, batch_offsets):
+    def forward_iter_pred(self, x, batch_offsets, sp_xyz=None):
         """
         x [B*M, inchannel]
         """
@@ -186,6 +196,8 @@ class QueryDecoder(nn.Module):
         prediction_scores = []
         inst_feats = self.input_proj(x)
         mask_feats = self.x_mask(x)
+        if self.use_sp_pos_enc and sp_xyz is not None:
+            mask_feats = mask_feats + self.sp_pos_enc(sp_xyz)
         B = len(batch_offsets) - 1
         query = self.query.weight.unsqueeze(0).repeat(B, 1, 1)  # (b, n, d_model)
         if getattr(self, 'pe', None):
@@ -222,8 +234,8 @@ class QueryDecoder(nn.Module):
             )],
         }
 
-    def forward(self, x, batch_offsets):
+    def forward(self, x, batch_offsets, sp_xyz=None):
         if self.iter_pred:
-            return self.forward_iter_pred(x, batch_offsets)
+            return self.forward_iter_pred(x, batch_offsets, sp_xyz)
         else:
-            return self.forward_simple(x, batch_offsets)
+            return self.forward_simple(x, batch_offsets, sp_xyz)

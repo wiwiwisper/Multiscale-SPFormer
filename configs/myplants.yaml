@@ -4,7 +4,6 @@ train:
   interval: 8
   pretrain: null
 
-
 test:
   seed: 1999
   test_topk_per_scene: 200
@@ -75,8 +74,9 @@ model:
   return_blocks: True
   pool: mean
   num_class: 2
-  geo_feat_dim: 0          # no geometric features (ablation: dual-scale only)
-  coarse_scale: 0.5        # coarse-grid cell size (same unit as coords_float; ~25 voxels)
+  geo_feat_dim: 0
+  coarse_scales: [0.5, 1.0]
+  fusion_mode: mlp
   decoder:
     num_layer: 6
     num_query: 400
@@ -100,7 +100,6 @@ model:
   norm_eval: False
   fix_module: []
 
-
 optimizer:
   type: AdamW
   lr: 0.0001
@@ -108,7 +107,7 @@ optimizer:
 
 lr_scheduler:
   type: PolyLR
-  max_iters: 79872  # 512 epochs * 156 iters/epoch
+  max_iters: 79872
   power: 0.9
   constant_ending: 0.0
 

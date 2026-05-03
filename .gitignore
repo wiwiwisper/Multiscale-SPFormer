@@ -1,25 +1,15 @@
-# Python
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 *.so
-*.egg-info/
 build/
-
-# IDE
-.idea/
+*.egg-info/
 .vscode/
+.idea/
 .codex/
 .claude/
 
-# Data and checkpoints
-data/
 checkpoints/
-*.pth
-*.npz
-
-# Experiments and outputs
+data/
 exps/
 out/
 output/
@@ -27,17 +17,9 @@ outputs/
 results/
 results.pkl/
 vis_results/
+
+*.pth
+*.npz
+*.ply
 *.log
-Evaluation_metrics.log
-train.log
-
-# Local analysis artifacts
-leaf_areas_*.txt
 *.csv
-已废弃
-phenotype/data/
-phenotype/visualization/
-
-# Misc
-2211.15766v1.pdf
-empty.pth

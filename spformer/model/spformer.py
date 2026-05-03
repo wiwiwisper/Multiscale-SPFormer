@@ -26,6 +26,11 @@ class SPFormer(nn.Module):
         return_blocks=True,
         pool='mean',
         num_class=18,
+        geo_feat_dim: int = 0,
+        coarse_scale: float = 0.0,
+        coarse_scale_2: float = 0.0,
+        coarse_scales: list = None,
+        fusion_mode: str = 'mlp',
         decoder=None,
         criterion=None,
         test_cfg=None,
@@ -33,6 +38,19 @@ class SPFormer(nn.Module):
         fix_module=[],
     ):
         super().__init__()
+        self.geo_feat_dim = geo_feat_dim
+        self.fusion_mode = fusion_mode
+
+        if coarse_scales is not None:
+            self.coarse_scales = coarse_scales
+        elif coarse_scale_2 > 0:
+            self.coarse_scales = [coarse_scale, coarse_scale_2]
+        elif coarse_scale > 0:
+            self.coarse_scales = [coarse_scale]
+        else:
+            self.coarse_scales = []
+
+        self.num_streams = len(self.coarse_scales) + 1
 
         # backbone and pooling
         self.input_conv = spconv.SparseSequential(
@@ -60,8 +78,14 @@ class SPFormer(nn.Module):
         self.pool = pool
         self.num_class = num_class
 
+        self.fusion_layer = nn.Sequential(
+            nn.Linear(media * self.num_streams, media),
+            nn.LayerNorm(media),
+            nn.ReLU(inplace=True),
+        )
+
         # decoder
-        self.decoder = QueryDecoder(**decoder, in_channel=media, num_class=num_class)
+        self.decoder = QueryDecoder(**decoder, in_channel=media + geo_feat_dim, num_class=num_class)
 
         # criterion
         self.criterion = Criterion(**criterion, num_class=num_class)
@@ -78,7 +102,6 @@ class SPFormer(nn.Module):
         super(SPFormer, self).train(mode)
         if mode and self.norm_eval:
             for m in self.modules():
-                # trick: eval have effect on BatchNorm1d only
                 if isinstance(m, nn.BatchNorm1d):
                     m.eval()
 
@@ -89,26 +112,27 @@ class SPFormer(nn.Module):
             return self.predict(**batch)
 
     @cuda_cast
-    def loss(self, scan_ids, voxel_coords, p2v_map, v2p_map, spatial_shape, feats, insts, superpoints, batch_offsets):
+    def loss(self, scan_ids, voxel_coords, p2v_map, v2p_map, spatial_shape, feats,
+             coords_float, insts, superpoints, batch_offsets):
         batch_size = len(batch_offsets) - 1
         voxel_feats = pointgroup_ops.voxelization(feats, v2p_map)
         input = spconv.SparseConvTensor(voxel_feats, voxel_coords.int(), spatial_shape, batch_size)
 
-        sp_feats = self.extract_feat(input, superpoints, p2v_map)
-        out = self.decoder(sp_feats, batch_offsets)
+        sp_feats, sp_coords = self.extract_feat(input, superpoints, p2v_map, coords_float, batch_offsets)
+        out = self.decoder(sp_feats, batch_offsets, sp_xyz=sp_coords)
 
         loss, loss_dict = self.criterion(out, insts)
         return loss, loss_dict
 
     @cuda_cast
-    def predict(self, scan_ids, voxel_coords, p2v_map, v2p_map, spatial_shape, feats, insts, superpoints,
-                batch_offsets):
+    def predict(self, scan_ids, voxel_coords, p2v_map, v2p_map, spatial_shape, feats,
+                coords_float, insts, superpoints, batch_offsets):
         batch_size = len(batch_offsets) - 1
         voxel_feats = pointgroup_ops.voxelization(feats, v2p_map)
         input = spconv.SparseConvTensor(voxel_feats, voxel_coords.int(), spatial_shape, batch_size)
 
-        sp_feats = self.extract_feat(input, superpoints, p2v_map)
-        out = self.decoder(sp_feats, batch_offsets)
+        sp_feats, sp_coords = self.extract_feat(input, superpoints, p2v_map, coords_float, batch_offsets)
+        out = self.decoder(sp_feats, batch_offsets, sp_xyz=sp_coords)
 
         ret = self.predict_by_feat(scan_ids, out, superpoints, insts)
         return ret
@@ -167,7 +191,40 @@ class SPFormer(nn.Module):
         gt_instances = insts[0].gt_instances
         return dict(scan_id=scan_ids[0], pred_instances=pred_instances, gt_instances=gt_instances)
 
-    def extract_feat(self, x, superpoints, v2p_map):
+    def create_coarse_sp(self, sp_coords, batch_offsets, scale):
+        coarse_sps = torch.empty(sp_coords.size(0), dtype=torch.long, device=sp_coords.device)
+        global_offset = 0
+        num_batch = len(batch_offsets) - 1
+
+        for batch_idx in range(num_batch):
+            start = int(batch_offsets[batch_idx].item())
+            end = int(batch_offsets[batch_idx + 1].item())
+            coords_batch = sp_coords[start:end]
+            grid = (coords_batch / scale).long()
+            _, inverse = torch.unique(grid, return_inverse=True, dim=0)
+            coarse_sps[start:end] = inverse + global_offset
+            global_offset += int(inverse.max().item()) + 1
+
+        return coarse_sps
+
+    def compute_geo_feats(self, coords_float, superpoints, sp_coords):
+        centered = coords_float - sp_coords[superpoints]
+        outer = centered.unsqueeze(2) * centered.unsqueeze(1)
+        cov = scatter_mean(outer.reshape(outer.shape[0], 9), superpoints, dim=0).view(-1, 3, 3)
+
+        eigenvalues, eigenvectors = torch.linalg.eigh(cov)
+        lam3, lam2, lam1 = eigenvalues[:, 0], eigenvalues[:, 1], eigenvalues[:, 2]
+        lam1 = lam1.clamp(min=1e-6)
+
+        linearity = (lam1 - lam2) / lam1
+        planarity = (lam2 - lam3) / lam1
+        sphericity = lam3 / lam1
+        verticality = torch.abs(eigenvectors[:, 2, 2])
+
+        geo = torch.stack([linearity, planarity, sphericity, verticality], dim=-1)
+        return geo[:, :self.geo_feat_dim]
+
+    def extract_feat(self, x, superpoints, v2p_map, coords_float, batch_offsets):
         # backbone
         x = self.input_conv(x)
         x, _ = self.unet(x)
@@ -176,7 +233,29 @@ class SPFormer(nn.Module):
 
         # superpoint pooling
         if self.pool == 'mean':
-            x = scatter_mean(x, superpoints, dim=0)  # (B*M, media)
+            sp_feats = scatter_mean(x, superpoints, dim=0)  # (B*M, media)
         elif self.pool == 'max':
-            x, _ = scatter_max(x, superpoints, dim=0)  # (B*M, media)
-        return x
+            sp_feats, _ = scatter_max(x, superpoints, dim=0)  # (B*M, media)
+        else:
+            raise ValueError(f'Unsupported pool mode: {self.pool}')
+
+        sp_coords = scatter_mean(coords_float, superpoints, dim=0)
+        all_feats = [sp_feats]
+        for scale in self.coarse_scales:
+            coarse_sps = self.create_coarse_sp(sp_coords, batch_offsets, scale)
+            coarse_feats = scatter_mean(sp_feats, coarse_sps, dim=0)
+            all_feats.append(coarse_feats[coarse_sps])
+
+        if len(all_feats) > 1:
+            if len(all_feats) > 2 or self.fusion_mode == 'mlp':
+                sp_feats = self.fusion_layer(torch.cat(all_feats, dim=-1))
+            elif self.fusion_mode == 'add':
+                sp_feats = all_feats[0] + all_feats[1]
+            else:
+                raise ValueError(f'Unsupported fusion mode: {self.fusion_mode}')
+
+        if self.geo_feat_dim > 0:
+            geo = self.compute_geo_feats(coords_float, superpoints, sp_coords)
+            sp_feats = torch.cat([sp_feats, geo], dim=-1)
+
+        return sp_feats, sp_coords

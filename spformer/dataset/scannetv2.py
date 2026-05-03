@@ -265,6 +265,7 @@ class ScanNetDataset(Dataset):
             'v2p_map': v2p_map,
             'spatial_shape': spatial_shape,
             'feats': feats,
+            'coords_float': coords_float,
             'superpoints': superpoints,
             'batch_offsets': batch_offsets,
             'insts': insts,
