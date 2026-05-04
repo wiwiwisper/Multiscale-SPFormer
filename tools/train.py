@@ -36,18 +36,15 @@ def train(epoch, model, dataloader, optimizer, lr_scheduler, cfg, logger, writer
         data_time.update(time.time() - end)
         loss, log_vars = model(batch, mode='loss')
 
-        # meter_dict
         for k, v in log_vars.items():
             if k not in meter_dict.keys():
                 meter_dict[k] = AverageMeter()
             meter_dict[k].update(v)
 
-        # backward
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        # time and print
         remain_iter = len(dataloader) * (cfg.train.epochs - epoch + 1) - i
         iter_time.update(time.time() - end)
         end = time.time()
@@ -62,11 +59,9 @@ def train(epoch, model, dataloader, optimizer, lr_scheduler, cfg, logger, writer
                 log_str += f', {k}: {v.val:.4f}'
             logger.info(log_str)
 
-    # update lr
     lr_scheduler.step()
     lr = optimizer.param_groups[0]['lr']
 
-    # log and save
     writer.add_scalar('train/learning_rate', lr, epoch)
     for k, v in meter_dict.items():
         writer.add_scalar(f'train/{k}', v.avg, epoch)
@@ -90,11 +85,9 @@ def eval(epoch, model, dataloader, cfg, logger, writer):
         progress_bar.update()
     progress_bar.close()
 
-    # evaluate
     logger.info('Evaluate instance segmentation')
     scannet_eval = ScanNetEval(val_dataset.CLASSES)
 
-    # Open metrics file and write epoch header
     metrics_file_path = osp.join(cfg.work_dir, 'Evaluation_metrics.log')
     with open(metrics_file_path, 'a') as metrics_file:
         import datetime
@@ -110,7 +103,6 @@ def eval(epoch, model, dataloader, cfg, logger, writer):
     logger.info('AP: {:.3f}. AP_50: {:.3f}. AP_25: {:.3f}'.format(eval_res['all_ap'], eval_res['all_ap_50%'],
                                                                   eval_res['all_ap_25%']))
 
-    # save
     save_file = osp.join(cfg.work_dir, f'epoch_{epoch:04d}.pth')
     gorilla.save_checkpoint(model, save_file)
 
@@ -130,19 +122,15 @@ def main():
     shutil.copy(args.config, osp.join(cfg.work_dir, osp.basename(args.config)))
     writer = SummaryWriter(cfg.work_dir)
 
-    # seed
     gorilla.set_random_seed(cfg.train.seed)
 
-    # model
     model = SPFormer(**cfg.model).cuda()
     count_parameters = gorilla.parameter_count(model)['']
     logger.info(f'Parameters: {count_parameters / 1e6:.2f}M')
 
-    # optimizer and scheduler
     optimizer = gorilla.build_optimizer(model, cfg.optimizer)
     lr_scheduler = gorilla.build_lr_scheduler(optimizer, cfg.lr_scheduler)
 
-    # pretrain or resume
     start_epoch = 1
     if args.resume:
         logger.info(f'Resume from {args.resume}')
@@ -152,14 +140,12 @@ def main():
         logger.info(f'Load pretrain from {cfg.train.pretrain}')
         gorilla.load_checkpoint(model, cfg.train.pretrain, strict=False)
 
-    # train and val dataset
     train_dataset = build_dataset(cfg.data.train, logger)
     train_loader = build_dataloader(train_dataset, **cfg.dataloader.train)
     if not args.skip_validate:
         val_dataset = build_dataset(cfg.data.val, logger)
         val_loader = build_dataloader(val_dataset, **cfg.dataloader.val)
 
-    # train and val
     logger.info('Training')
     for epoch in range(start_epoch, cfg.train.epochs + 1):
         train(epoch, model, train_loader, optimizer, lr_scheduler, cfg, logger, writer)

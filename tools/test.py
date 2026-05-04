@@ -51,17 +51,10 @@ def main():
         pred_insts.append(res['pred_instances'])
         gt_insts.append(res['gt_instances'])
 
-    # if not cfg.data.test.prefix == 'test':
-    #     logger.info('Evaluate instance segmentation')
-    #     scannet_eval = ScanNetEval(dataset.CLASSES)
-    #     scannet_eval.evaluate(pred_insts, gt_insts)
-
-        # === 强制评测：去掉 prefix 限制，用开关控制 ===
     if not args.no_eval:
         logger.info('Evaluate instance segmentation')
         scannet_eval = ScanNetEval(dataset.CLASSES)
 
-        # Open metrics file and write test header
         output_dir = args.out if args.out else '.'
         os.makedirs(output_dir, exist_ok=True)
         metrics_file_path = osp.join(output_dir, 'Evaluation_metrics.log')
@@ -71,9 +64,8 @@ def main():
             metrics_file.write(f'Test Evaluation  |  Time: {timestamp}\n')
             metrics_file.write(f'Checkpoint: {args.checkpoint}\n')
             metrics_file.write(f'{"="*64}\n')
-            scannet_eval.evaluate(pred_insts, gt_insts, logger, metrics_file)   # 会打印 AP / AP_50 / AP_25 / AR
+            scannet_eval.evaluate(pred_insts, gt_insts, logger, metrics_file)
 
-    # save output
     if args.out:
         logger.info('Save results')
         nyu_id = dataset.NYU_ID
